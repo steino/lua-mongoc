@@ -5,6 +5,7 @@
 
 #include <lua.h>
 #include <lauxlib.h>
+#include <math.h>
 
 #include "mongo.h"
 
@@ -28,6 +29,134 @@ static void setfuncs (lua_State *L, const luaL_reg*l, int nup)
 	lua_pop(L, nup);
 }
 
+static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, int ref)
+{
+	bson * bobj = bson_create();
+	bson_iterator * b_it = bson_iterator_create();
+
+	double numval;
+	int intval;
+	int len;
+	int array = 1;
+	char newkey[15];
+	int newkeyint;
+
+	switch(lua_type(L, idx))
+	{
+		case LUA_TTABLE:
+			if (idx < 0)
+				idx = lua_gettop(L) + idx + 1;
+
+			lua_checkstack(L, 3);
+			bson_init(bobj);
+
+			lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+			lua_pushvalue(L, idx);
+			lua_pushboolean(L, 1);
+			lua_rawset(L, -3);
+			lua_pop(L, 1);
+
+			for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1)) {
+				++len;
+				if ((lua_type(L, -2) != LUA_TNUMBER) || (lua_tointeger(L, -2) != len)) {
+					lua_pop(L, 2);
+					array = 0;
+					break;
+				}
+			}
+
+			if(array)
+			{
+				bson_append_start_array(bobj, key);
+				for (int i = 0; i < len; i++) {
+					lua_rawgeti(L, idx, i+1);
+					sprintf(newkey, "%d", i);
+					lua_append_bson(L, newkey, -1, bobj, ref);
+					lua_pop(L, 1);
+				}
+				bson_append_finish_array(bobj);
+
+				if(bson_finish(bobj) != BSON_OK)
+				{
+					printf("BSON ERROR");
+					return;
+				}
+
+				bson_iterator_init(b_it, bobj);
+				bson_find(b_it, bobj, key);
+				bson_append_element(b, key, b_it);
+				bson_iterator_dispose(b_it);
+				bson_destroy(bobj);
+			} else {
+				for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1)) {
+					switch (lua_type(L, -2)) {
+						case LUA_TNUMBER:
+							newkeyint = lua_tonumber(L, -2);
+							sprintf(newkey, "%d", newkeyint);
+							lua_append_bson(L, newkey, -1, bobj, ref);
+							break;
+						case LUA_TSTRING:
+							lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
+							break;
+					}
+				}
+				if(bson_finish(bobj) != BSON_OK)
+				{
+					printf("BSON ERROR");
+					return;
+				}
+				bson_append_bson(b, key, bobj);
+				bson_destroy(bobj);
+			}
+			break;
+		case LUA_TNUMBER:
+			numval = lua_tonumber(L, idx);
+			if(numval == floor(numval))
+			{
+				intval = lua_tointeger(L, idx);
+				bson_append_int(b, key, intval);
+			} else {
+				bson_append_double(b, key, numval);
+			}
+			break;
+		case LUA_TSTRING:
+			bson_append_string(b, key, lua_tostring(L, idx));
+			break;
+		case LUA_TBOOLEAN:
+			bson_append_bool(b, key, lua_toboolean(L, idx));
+			break;
+		case LUA_TNIL:
+			bson_append_null(b, key);
+			break;
+	}
+}
+
+static void lua_to_bson (lua_State * L, int idx, bson * b)
+{
+	lua_newtable(L);
+	int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+	int keyint;
+	char key[15];
+
+	for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1))
+	{
+		switch (lua_type(L, -2))
+		{
+			case LUA_TNUMBER:
+				keyint = lua_tointeger(L, -2);
+				sprintf(key, "%d", keyint);
+				lua_append_bson(L, key, -1, b, ref);
+				break;
+			case LUA_TSTRING:
+				lua_append_bson(L, lua_tostring(L, -2), -1, b, ref);
+				break;
+		}
+	}
+
+	luaL_unref(L, LUA_REGISTRYINDEX, ref);
+}
+
 typedef struct luamongoc_Connection
 {
 	mongo* obj;
@@ -35,9 +164,7 @@ typedef struct luamongoc_Connection
 
 static mongo * check_connection(lua_State * L, int idx)
 {
-	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(
-			L, idx, LUAMONGOC_CONN_MT
-			);
+	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(L, idx, LUAMONGOC_CONN_MT);
 
 	if (!conn->obj->connected)
 		return 0;
@@ -45,19 +172,43 @@ static mongo * check_connection(lua_State * L, int idx)
 	return conn->obj;
 }
 
+static int lconn_insert(lua_State *L)
+{
+	bson * b = bson_create();
+	bson_init(b);
+	mongo * conn = check_connection(L, 1);
+	const char * ns = luaL_checkstring(L, 2);
+
+	luaL_checktype(L, 3, LUA_TTABLE);
+
+	lua_to_bson(L, 3, b);
+
+	if(bson_finish(b) != BSON_OK)
+	{
+		printf("BSON ERROR");
+		return 0;
+	}
+	if(mongo_insert(conn, ns, b, NULL) != MONGO_OK)
+	{
+		bson_destroy(b);
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		lua_pushinteger(L, conn->err);
+		return 2;
+	}
+	bson_destroy(b);
+	lua_pushboolean(L, 1);
+	return 1;
+}
 
 static int lconn_close(lua_State * L)
 {
-	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(
-		L, 1, LUAMONGOC_CONN_MT
-	);
-
+	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(L, 1, LUAMONGOC_CONN_MT);
 	if (conn && conn->obj != NULL)
 	{
 		mongo_destroy(conn->obj);
 		conn->obj = NULL;
 	}
-
 	return 0;
 }
 
@@ -73,6 +224,8 @@ static int lconn_tostring(lua_State * L)
 
 static const luaL_reg M[] =
 {
+	{ "insert", lconn_insert },
+
 	{ "close", lconn_close },
 	{ "__gc", lconn_gc },
 	{ "__tostring", lconn_tostring },
