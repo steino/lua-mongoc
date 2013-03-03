@@ -166,8 +166,15 @@ static mongo * check_connection(lua_State * L, int idx)
 {
 	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(L, idx, LUAMONGOC_CONN_MT);
 
-	if (!conn->obj->connected)
-		return 0;
+	if (conn == NULL)
+	{
+		luaL_error(L, "lua-mongoc error: connection is null");
+		return NULL;
+	}
+	if (conn->obj == NULL)
+	{
+		luaL_error(L, "lua-mongoc error: attempted to use closed connection");
+	}
 
 	return conn->obj;
 }
