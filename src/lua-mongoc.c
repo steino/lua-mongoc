@@ -179,6 +179,79 @@ static mongo * check_connection(lua_State * L, int idx)
 	return conn->obj;
 }
 
+static int lconn_count(lua_State *L)
+{
+	bson * b = bson_create();
+	bson_init(b);
+	mongo * conn = check_connection(L, 1);
+	const char * db = luaL_checkstring(L, 2);
+	const char * coll = luaL_checkstring(L, 3);
+
+	if(!lua_isnoneornil(L, 4) && !lua_type(L, 4) == LUA_TTABLE)
+	{
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		lua_pushliteral(L, "Query is not a table");
+	} else if (lua_type(L, 4) == LUA_TTABLE) {
+		lua_to_bson(L, 4, b);
+
+		if(bson_finish(b) != BSON_OK)
+		{
+			printf("BSON ERROR");
+			return 0;
+		}
+	}
+	int count = mongo_count(conn, db, coll, b);
+	lua_pushinteger(L, count);
+	return 1;
+}
+
+static int lconn_update(lua_State *L)
+{
+	bson * cond = bson_create();
+	bson * op = bson_create();
+	bson_init(cond);
+	bson_init(op);
+
+	mongo * conn = check_connection(L, 1);
+	const char * ns = luaL_checkstring(L, 2);
+	luaL_checktype(L, 3, LUA_TTABLE);
+	luaL_checktype(L, 4, LUA_TTABLE);
+
+	lua_to_bson(L, 3, cond);
+	lua_to_bson(L, 4, op);
+
+	if(bson_finish(cond) != BSON_OK || bson_finish(op) != BSON_OK)
+	{
+		printf("BSON ERROR");
+		return 0;
+	}
+
+	int upsert = lua_toboolean(L, 5);
+	int multi = lua_toboolean(L, 6);
+	int flags = MONGO_UPDATE_BASIC;
+
+	if(upsert)
+		flags = flags | MONGO_UPDATE_UPSERT;
+	if(multi)
+		flags = flags | MONGO_UPDATE_MULTI;
+
+	if(mongo_update(conn, ns, cond, op, flags, NULL) != MONGO_OK)
+	{
+		bson_destroy(cond);
+		bson_destroy(op);
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		lua_pushstring(L, conn->lasterrstr);
+		return 2;
+	}
+
+	bson_destroy(cond);
+	bson_destroy(op);
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int lconn_insert(lua_State *L)
 {
 	bson * b = bson_create();
@@ -231,6 +304,8 @@ static int lconn_tostring(lua_State * L)
 
 static const luaL_reg M[] =
 {
+	{ "count", lconn_count },
+	{ "update", lconn_update },
 	{ "insert", lconn_insert },
 
 	{ "close", lconn_close },
