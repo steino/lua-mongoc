@@ -144,9 +144,7 @@ static void lua_to_bson (lua_State * L, int idx, bson * b)
 		switch (lua_type(L, -2))
 		{
 			case LUA_TNUMBER:
-				keyint = lua_tointeger(L, -2);
-				sprintf(key, "%d", keyint);
-				lua_append_bson(L, key, -1, b, ref);
+				lua_append_bson(L, lua_tolstring(L, -2, NULL), -1, b, ref);
 				break;
 			case LUA_TSTRING:
 				lua_append_bson(L, lua_tostring(L, -2), -1, b, ref);
