@@ -131,7 +131,7 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 	}
 }
 
-static void lua_push_value(lua_State * L, bson_iterator * it);
+static void bson_to_value(lua_State * L, bson_iterator * it);
 
 static void bson_to_array (lua_State * L, bson *b)
 {
@@ -149,7 +149,7 @@ static void bson_to_array (lua_State * L, bson *b)
 		if(type == BSON_EOO)
 			break;
 
-		lua_push_value(L, it);
+		bson_to_value(L, it);
 		lua_rawseti(L, -2, n++);
 	}
 
@@ -174,14 +174,14 @@ static void bson_to_table (lua_State * L, bson *b)
 		const char * key = bson_iterator_key(it);
 
 		lua_pushstring(L, key);
-		lua_push_value(L, it);
+		bson_to_value(L, it);
 		lua_rawset(L, -3);
 	}
 
 	bson_iterator_dispose(it);
 }
 
-static void lua_push_value(lua_State * L, bson_iterator * it)
+static void bson_to_value(lua_State * L, bson_iterator * it)
 {
 	bson * sub = bson_create();
 	bson_type type;
@@ -214,11 +214,6 @@ static void lua_push_value(lua_State * L, bson_iterator * it)
 			lua_pushstring(L, oid);
 			break;
 	}
-}
-
-void bson_to_lua (lua_State * L, bson * b)
-{
-	bson_to_table(L, b);
 }
 
 void lua_to_bson (lua_State * L, int idx, bson * b)
@@ -315,14 +310,14 @@ static int lconn_find_one(lua_State *L)
 	bson_destroy(f);
 
 	if(table) {
-		bson_to_lua(L, out);
+		bson_to_table(L, out);
 	} else {
 		const char * key = lua_tostring(L, 4);
 
 		bson_iterator * it = bson_iterator_create();
 		bson_iterator_init(it, out);
 		bson_find(it, out, key);
-		lua_push_value(L, it);
+		bson_to_value(L, it);
 	}
 	return 1;
 }
