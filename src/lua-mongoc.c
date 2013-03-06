@@ -35,81 +35,81 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 	bson_iterator * b_it = bson_iterator_create();
 
 	double numval;
-	int intval;
-	int len;
-	int array = 1;
-	char newkey[15];
-	int newkeyint;
+	int array = 1, len, intval;
 
 	switch(lua_type(L, idx))
 	{
-		case LUA_TTABLE:
+		case 5:
 			if (idx < 0)
 				idx = lua_gettop(L) + idx + 1;
 
 			lua_checkstack(L, 3);
 			bson_init(bobj);
 
-			lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+			lua_rawgeti(L, (-10000), ref);
 			lua_pushvalue(L, idx);
 			lua_pushboolean(L, 1);
 			lua_rawset(L, -3);
 			lua_pop(L, 1);
 
-			for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1)) {
+			lua_pushnil(L);
+			while(lua_next(L, idx)) {
 				++len;
 				if ((lua_type(L, -2) != LUA_TNUMBER) || (lua_tointeger(L, -2) != len)) {
 					lua_pop(L, 2);
 					array = 0;
 					break;
 				}
+				lua_pop(L, 1);
 			}
 
-			if(array)
+			switch(array)
 			{
-				bson_append_start_array(bobj, key);
-				for (int i = 0; i < len; i++) {
-					lua_rawgeti(L, idx, i+1);
-					sprintf(newkey, "%d", i);
-					lua_append_bson(L, newkey, -1, bobj, ref);
-					lua_pop(L, 1);
-				}
-				bson_append_finish_array(bobj);
-
-				if(bson_finish(bobj) != BSON_OK)
-				{
-					printf("BSON ERROR");
-					return;
-				}
-
-				bson_iterator_init(b_it, bobj);
-				bson_find(b_it, bobj, key);
-				bson_append_element(b, key, b_it);
-				bson_iterator_dispose(b_it);
-				bson_destroy(bobj);
-			} else {
-				for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1)) {
-					switch (lua_type(L, -2)) {
-						case LUA_TNUMBER:
-							newkeyint = lua_tonumber(L, -2);
-							sprintf(newkey, "%d", newkeyint);
-							lua_append_bson(L, newkey, -1, bobj, ref);
-							break;
-						case LUA_TSTRING:
-							lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
-							break;
+				case 0:
+					lua_pushnil(L);
+					while(lua_next(L, idx)) {
+						switch (lua_type(L, -2)) {
+							case 3: // number
+								lua_append_bson(L, lua_tolstring(L, -2, NULL), -1, bobj, ref);
+								break;
+							case 4: // string
+								lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
+								break;
+						}
+						lua_pop(L, 1);
 					}
-				}
-				if(bson_finish(bobj) != BSON_OK)
-				{
-					printf("BSON ERROR");
-					return;
-				}
-				bson_append_bson(b, key, bobj);
-				bson_destroy(bobj);
+					if(bson_finish(bobj) != 0)
+					{
+						printf("BSON ERROR");
+						return;
+					}
+					bson_append_bson(b, key, bobj);
+					bson_destroy(bobj);
+					break;
+				case 1:
+					bson_append_start_array(bobj, key);
+					for (len; len--;) {
+						lua_rawgeti(L, idx, len+1);
+						lua_append_bson(L, lua_tolstring(L, len, NULL), -1, bobj, ref);
+						lua_pop(L, 1);
+					}
+					bson_append_finish_array(bobj);
+
+					if(bson_finish(bobj) != 0)
+					{
+						printf("BSON ERROR");
+						return;
+					}
+
+					bson_iterator_init(b_it, bobj);
+					bson_find(b_it, bobj, key);
+					bson_append_element(b, key, b_it);
+					bson_iterator_dispose(b_it);
+					bson_destroy(bobj);
+					break;
 			}
 			break;
-		case LUA_TNUMBER:
+		case 3: // number
 			numval = lua_tonumber(L, idx);
 			if(numval == floor(numval))
 			{
@@ -119,13 +119,13 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 				bson_append_double(b, key, numval);
 			}
 			break;
-		case LUA_TSTRING:
+		case 4: // string
 			bson_append_string(b, key, lua_tostring(L, idx));
 			break;
-		case LUA_TBOOLEAN:
+		case 1: // bool
 			bson_append_bool(b, key, lua_toboolean(L, idx));
 			break;
-		case LUA_TNIL:
+		case 0: // nil
 			bson_append_null(b, key);
 			break;
 	}
@@ -139,14 +139,13 @@ static void bson_to_array (lua_State * L, bson *b)
 	bson_iterator_init(it, b);
 
 	lua_newtable(L);
-
-	int n = 1;
-	while(bson_iterator_more(it))
+	int n = 1,i = bson_size(b);
+	for(i; i--;)
 	{
 		bson_type type;
 		type = bson_iterator_next(it);
 
-		if(type == BSON_EOO)
+		if(type == 0)
 			break;
 
 		bson_to_value(L, it);
@@ -162,13 +161,13 @@ static void bson_to_table (lua_State * L, bson *b)
 	bson_iterator_init(it, b);
 
 	lua_newtable(L);
-
-	while(bson_iterator_more(it))
+	int i = bson_size(b);
+	for(i; i--;)
 	{
 		bson_type type;
 		type = bson_iterator_next(it);
 
-		if(type == BSON_EOO)
+		if(type == 0)
 			break;
 
 		const char * key = bson_iterator_key(it);
@@ -191,25 +190,25 @@ static void bson_to_value(lua_State * L, bson_iterator * it)
 	lua_checkstack(L, 2);
 	switch(type)
 	{
-		case BSON_LONG:
-		case BSON_DOUBLE:
+		case 18: // long
+		case 1: // double
 			lua_pushnumber(L, bson_iterator_double(it));
 			break;
-		case BSON_INT:
+		case 16: // int
 			lua_pushinteger(L, bson_iterator_int(it));
 			break;
-		case BSON_STRING:
+		case 2: // string
 			lua_pushstring(L, bson_iterator_string(it));
 			break;
-		case BSON_ARRAY:
+		case 4: // array
 			bson_iterator_subobject(it, sub);
 			bson_to_array(L, sub);
 			break;
-		case BSON_OBJECT:
+		case 3: // object
 			bson_iterator_subobject(it, sub);
 			bson_to_table(L, sub);
 			break;
-		case BSON_OID:
+		case 7: // oid
 			bson_oid_to_string(bson_iterator_oid(it), oid);
 			lua_pushstring(L, oid);
 			break;
@@ -219,22 +218,24 @@ static void bson_to_value(lua_State * L, bson_iterator * it)
 void lua_to_bson (lua_State * L, int idx, bson * b)
 {
 	lua_newtable(L);
-	int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	int ref = luaL_ref(L, (-10000));
 
-	for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1))
+	lua_pushnil(L);
+	while(lua_next(L, idx))
 	{
 		switch (lua_type(L, -2))
 		{
-			case LUA_TNUMBER:
+			case 3: // number
 				lua_append_bson(L, lua_tolstring(L, -2, NULL), -1, b, ref);
 				break;
-			case LUA_TSTRING:
+			case 4: // string
 				lua_append_bson(L, lua_tostring(L, -2), -1, b, ref);
 				break;
 		}
+		lua_pop(L, 1);
 	}
 
-	luaL_unref(L, LUA_REGISTRYINDEX, ref);
+	luaL_unref(L, (-10000), ref);
 }
 
 typedef struct luamongoc_Connection
@@ -273,30 +274,30 @@ static int lconn_find_one(lua_State *L)
 
 	mongo * conn = check_connection(L, 1);
 	const char * ns = luaL_checkstring(L, 2);
-	luaL_checktype(L, 3, LUA_TTABLE);
+	luaL_checktype(L, 3, 5);
 	lua_to_bson(L, 3, q);
-	if (bson_finish(q) != BSON_OK)
+	if (bson_finish(q) != 0)
 	{
 		printf("BSON ERROR");
 		return 0;
 	}
 
-	if (lua_type(L, 4) == LUA_TTABLE)
+	if (lua_type(L, 4) == 5)
 		lua_to_bson(L, 4, f);
-	else if (lua_type(L, 4) == LUA_TSTRING)
+	else if (lua_type(L, 4) == 4)
 	{
 		const char * key = lua_tostring(L, 4);
 		bson_append_int(f, key, 1);
 		table = 0;
 	}
 
-	if(bson_finish(f) != BSON_OK)
+	if(bson_finish(f) != 0)
 	{
 		printf("BSON ERROR");
 		return 0;
 	}
 
-	if(mongo_find_one(conn, ns, q, f, out) != MONGO_OK)
+	if(mongo_find_one(conn, ns, q, f, out) != 0)
 	{
 		bson_destroy(q);
 		bson_destroy(f);
@@ -330,15 +331,15 @@ static int lconn_count(lua_State *L)
 	const char * db = luaL_checkstring(L, 2);
 	const char * coll = luaL_checkstring(L, 3);
 
-	if(!lua_isnoneornil(L, 4) && !lua_type(L, 4) == LUA_TTABLE)
+	if(!lua_isnoneornil(L, 4) && !lua_type(L, 4) == 5)
 	{
 		luaL_checkstack(L, 2, "Not enough stack to push error");
 		lua_pushnil(L);
 		lua_pushliteral(L, "Query is not a table");
-	} else if (lua_type(L, 4) == LUA_TTABLE) {
+	} else if (lua_type(L, 4) == 5) {
 		lua_to_bson(L, 4, b);
 
-		if(bson_finish(b) != BSON_OK)
+		if(bson_finish(b) != 0)
 		{
 			printf("BSON ERROR");
 			return 0;
@@ -358,13 +359,13 @@ static int lconn_update(lua_State *L)
 
 	mongo * conn = check_connection(L, 1);
 	const char * ns = luaL_checkstring(L, 2);
-	luaL_checktype(L, 3, LUA_TTABLE);
-	luaL_checktype(L, 4, LUA_TTABLE);
+	luaL_checktype(L, 3, 5);
+	luaL_checktype(L, 4, 5);
 
 	lua_to_bson(L, 3, cond);
 	lua_to_bson(L, 4, op);
 
-	if(bson_finish(cond) != BSON_OK || bson_finish(op) != BSON_OK)
+	if(bson_finish(cond) != 0 || bson_finish(op) != 0)
 	{
 		printf("BSON ERROR");
 		return 0;
@@ -372,14 +373,14 @@ static int lconn_update(lua_State *L)
 
 	int upsert = lua_toboolean(L, 5);
 	int multi = lua_toboolean(L, 6);
-	int flags = MONGO_UPDATE_BASIC;
+	int flags = 0x4;
 
 	if(upsert)
-		flags = flags | MONGO_UPDATE_UPSERT;
+		flags = flags | 0x1; // upsert
 	if(multi)
-		flags = flags | MONGO_UPDATE_MULTI;
+		flags = flags | 0x2; // multi
 
-	if(mongo_update(conn, ns, cond, op, flags, NULL) != MONGO_OK)
+	if(mongo_update(conn, ns, cond, op, flags, NULL) != 0)
 	{
 		bson_destroy(cond);
 		bson_destroy(op);
@@ -402,16 +403,16 @@ static int lconn_insert(lua_State *L)
 	mongo * conn = check_connection(L, 1);
 	const char * ns = luaL_checkstring(L, 2);
 
-	luaL_checktype(L, 3, LUA_TTABLE);
+	luaL_checktype(L, 3, 5);
 
 	lua_to_bson(L, 3, b);
 
-	if(bson_finish(b) != BSON_OK)
+	if(bson_finish(b) != 0)
 	{
 		printf("BSON ERROR");
 		return 0;
 	}
-	if(mongo_insert(conn, ns, b, NULL) != MONGO_OK)
+	if(mongo_insert(conn, ns, b, NULL) != 0)
 	{
 		bson_destroy(b);
 		luaL_checkstack(L, 2, "Not enough stack to push error");
@@ -468,7 +469,7 @@ static int lmongoc_connect(lua_State * L)
 	mongo * conn = mongo_create();
 
 	int status = mongo_client(conn, host, port);
-	if( status != MONGO_OK ) {
+	if( status != 0 ) {
 		luaL_checkstack(L, 2, "Not enough stack to push error");
 		lua_pushnil(L);
 		lua_pushinteger(L, conn->err);
