@@ -425,6 +425,34 @@ static int lconn_insert(lua_State *L)
 	return 1;
 }
 
+static int lconn_remove(lua_State *L)
+{
+	bson * b = bson_create();
+	bson_init(b);
+	mongo * conn = check_connection(L, 1);
+	const char * ns = luaL_checkstring(L, 2);
+
+	luaL_checktype(L, 3, 5);
+
+	lua_to_bson(L, 3, b);
+	if(bson_finish(b) != 0)
+	{
+		printf("BSON ERROR");
+		return 0;
+	}
+	if(mongo_remove(conn, ns, b, NULL) != 0)
+	{
+		bson_destroy(b);
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		lua_pushinteger(L, conn->err);
+		return 2;
+	}
+	bson_destroy(b);
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int lconn_close(lua_State * L)
 {
 	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(L, 1, LUAMONGOC_CONN_MT);
@@ -452,6 +480,7 @@ static const luaL_reg M[] =
 	{ "count", lconn_count },
 	{ "update", lconn_update },
 	{ "insert", lconn_insert },
+	{ "remove", lconn_remove },
 
 	{ "close", lconn_close },
 	{ "__gc", lconn_gc },
