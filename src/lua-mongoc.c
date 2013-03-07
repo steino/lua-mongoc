@@ -270,6 +270,7 @@ static int lconn_find_one(lua_State *L)
 	bson_init(f);
 	bson_init(out);
 
+	const char * key = NULL;
 	int table = 1;
 
 	mongo * conn = check_connection(L, 1);
@@ -282,13 +283,16 @@ static int lconn_find_one(lua_State *L)
 		return 0;
 	}
 
-	if (lua_type(L, 4) == 5)
-		lua_to_bson(L, 4, f);
-	else if (lua_type(L, 4) == 4)
+	switch(lua_type(L, 4);)
 	{
-		const char * key = lua_tostring(L, 4);
-		bson_append_int(f, key, 1);
-		table = 0;
+		case 5:
+			lua_to_bson(L, 4, f);
+			break;
+		case 4:
+			key = lua_tostring(L, 4);
+			bson_append_int(f, key, 1);
+			table = 0;
+			break;
 	}
 
 	if(bson_finish(f) != 0)
@@ -313,8 +317,6 @@ static int lconn_find_one(lua_State *L)
 	if(table) {
 		bson_to_table(L, out);
 	} else {
-		const char * key = lua_tostring(L, 4);
-
 		bson_iterator * it = bson_iterator_create();
 		bson_iterator_init(it, out);
 		bson_find(it, out, key);
