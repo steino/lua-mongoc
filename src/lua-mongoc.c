@@ -6,7 +6,6 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <math.h>
-
 #include "mongo.h"
 
 #define LUAMONGOC_VERSION 		"lua-mongoc 0.1"
@@ -675,8 +674,7 @@ static int lmongoc_connect(lua_State * L)
 	luamongoc_Connection * result = NULL;
 	mongo * conn = mongo_create();
 
-	int status = mongo_client(conn, host, port);
-	if( status != 0 ) {
+	if(mongo_client(conn, host, port) != 0) {
 		luaL_checkstack(L, 2, "Not enough stack to push error");
 		lua_pushnil(L);
 		lua_pushinteger(L, conn->err);
