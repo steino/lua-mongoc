@@ -283,7 +283,7 @@ static int lconn_find_one(lua_State *L)
 		return 0;
 	}
 
-	switch(lua_type(L, 4);)
+	switch(lua_type(L, 4))
 	{
 		case 5:
 			lua_to_bson(L, 4, f);
