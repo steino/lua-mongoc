@@ -245,6 +245,8 @@ typedef struct luamongoc_Connection
 
 typedef struct luamongoc_Cursor
 {
+	const char * key;
+	int table;
 	int count;
 	mongo_cursor* obj;
 } luamongoc_Cursor;
@@ -275,8 +277,17 @@ static int lcur_iterator(lua_State * L)
 
 	if(cursor->seen > cursor_mt->count) {
 		mongo_cursor_next(cursor);
-		bson * b = mongo_cursor_bson(cursor);
-		bson_to_table(L, b);
+		bson * b = bson_create();
+		bson_copy(b, mongo_cursor_bson(cursor));
+		if(cursor_mt->table) {
+			bson_to_table(L, b);
+		} else {
+			bson_iterator * it = bson_iterator_create();
+			bson_iterator_init(it, b);
+			bson_find(it, b, cursor_mt->key);
+			bson_to_value(L, it);
+			bson_iterator_dispose(it);
+		}
 		cursor_mt->count++;
 	} else {
 		lua_pushnil(L);
@@ -306,8 +317,17 @@ static int lcur_next(lua_State * L)
 
 	if(cursor->seen > cursor_mt->count) {
 		mongo_cursor_next(cursor);
-		bson * b = mongo_cursor_bson(cursor);
-		bson_to_table(L, b);
+		bson * b = bson_create();
+		bson_copy(b, mongo_cursor_bson(cursor));
+		if(cursor_mt->table) {
+			bson_to_table(L, b);
+		} else {
+			bson_iterator * it = bson_iterator_create();
+			bson_iterator_init(it, b);
+			bson_find(it, b, cursor_mt->key);
+			bson_to_value(L, it);
+			bson_iterator_dispose(it);
+		}
 		cursor_mt->count++;
 	} else {
 		lua_pushnil(L);
@@ -360,7 +380,7 @@ static int lconn_find(lua_State *L)
 	bson_init(f);
 
 	const char * key = NULL;
-	int limit, skip = 0;
+	int limit, skip = 0, table = 1;
 
 	mongo * conn = check_connection(L, 1);
 	const char * ns = luaL_checkstring(L, 2);
@@ -380,6 +400,7 @@ static int lconn_find(lua_State *L)
 		case 4:
 			key = lua_tostring(L, 4);
 			bson_append_int(f, key, 1);
+			table = 0;
 			break;
 	}
 
@@ -417,6 +438,8 @@ static int lconn_find(lua_State *L)
 			);
 	result->obj = cursor;
 	result->count = 0;
+	result->key = key;
+	result->table = table;
 
 	if (luaL_newmetatable(L, LUAMONGOC_CUR_MT))
 	{
