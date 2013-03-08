@@ -14,6 +14,7 @@
 #define LUAMONGOC_DESCRIPTION "Binding for the mongo C driver."
 
 #define LUAMONGOC_CONN_MT 		"lua-mongoc.connection"
+#define LUAMONGOC_CUR_MT 		"lua-mongoc.cursor"
 
 // luaL_setfuncs() from lua 5.2
 static void setfuncs (lua_State *L, const luaL_reg*l, int nup)
@@ -243,6 +244,13 @@ typedef struct luamongoc_Connection
 	mongo* obj;
 } luamongoc_Connection;
 
+typedef struct luamongoc_Cursor
+{
+	int count;
+	mongo_cursor* obj;
+} luamongoc_Cursor;
+
+
 static mongo * check_connection(lua_State * L, int idx)
 {
 	luamongoc_Connection * conn = (luamongoc_Connection *)luaL_checkudata(L, idx, LUAMONGOC_CONN_MT);
@@ -260,6 +268,172 @@ static mongo * check_connection(lua_State * L, int idx)
 
 	return conn->obj;
 }
+
+static int lcur_iterator(lua_State * L)
+{
+	luamongoc_Cursor * cursor_mt = (luamongoc_Cursor *)luaL_checkudata(L, lua_upvalueindex(1), LUAMONGOC_CUR_MT);
+	mongo_cursor * cursor = cursor_mt->obj;
+
+	if(cursor->seen > cursor_mt->count) {
+		mongo_cursor_next(cursor);
+		bson * b = mongo_cursor_bson(cursor);
+		bson_to_table(L, b);
+		cursor_mt->count++;
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+static int lcur_results(lua_State * L)
+{
+	lua_pushcclosure(L, lcur_iterator, 1);
+	return 1;
+}
+
+static int lcur_count(lua_State * L)
+{
+	luamongoc_Cursor * cursor_mt = (luamongoc_Cursor *)luaL_checkudata(L, 1, LUAMONGOC_CUR_MT);
+	mongo_cursor * cursor = cursor_mt->obj;
+
+	lua_pushinteger(L, cursor->seen);
+	return 1;
+}
+
+static int lcur_next(lua_State * L)
+{
+	luamongoc_Cursor * cursor_mt = (luamongoc_Cursor *)luaL_checkudata(L, 1, LUAMONGOC_CUR_MT);
+	mongo_cursor * cursor = cursor_mt->obj;
+
+	if(cursor->seen > cursor_mt->count) {
+		mongo_cursor_next(cursor);
+		bson * b = mongo_cursor_bson(cursor);
+		bson_to_table(L, b);
+		cursor_mt->count++;
+	} else {
+		lua_pushnil(L);
+	}
+
+	return 1;
+}
+
+static int lcur_more(lua_State * L)
+{
+	luamongoc_Cursor * cursor_mt = (luamongoc_Cursor *)luaL_checkudata(L, 1, LUAMONGOC_CUR_MT);
+	mongo_cursor * cursor = cursor_mt->obj;
+
+	if(cursor->seen > cursor_mt->count) {
+		lua_pushboolean(L, 1);
+	} else {
+		lua_pushboolean(L, 0);
+	}
+
+	return 1;
+}
+
+static int lcur_tostring(lua_State * L)
+{
+	luaL_checkstack(L, 1, "not enough stack to push reply");
+	lua_pushliteral(L, LUAMONGOC_CUR_MT);
+
+	return 1;
+}
+
+
+static const struct luaL_reg C[] =
+{
+	{ "results", lcur_results },
+	{ "count", lcur_count },
+	{ "next", lcur_next },
+	{ "more", lcur_more },
+
+	{ NULL, NULL }
+};
+
+
+static int lconn_find(lua_State *L)
+{
+	luamongoc_Cursor * result = NULL;
+
+	bson * q = bson_create();
+	bson * f = bson_create();
+	bson_init(q);
+	bson_init(f);
+
+	const char * key = NULL;
+	int limit, skip = 0;
+
+	mongo * conn = check_connection(L, 1);
+	const char * ns = luaL_checkstring(L, 2);
+	luaL_checktype(L, 3, 5);
+	lua_to_bson(L, 3, q);
+	if (bson_finish(q) != 0)
+	{
+		printf("BSON ERROR");
+		return 0;
+	}
+
+	switch(lua_type(L, 4))
+	{
+		case 5:
+			lua_to_bson(L, 4, f);
+			break;
+		case 4:
+			key = lua_tostring(L, 4);
+			bson_append_int(f, key, 1);
+			break;
+	}
+
+	if(bson_finish(f) != 0)
+	{
+		printf("BSON ERROR");
+		return 0;
+	}
+
+	if(!lua_isnoneornil(L, 5)) {
+		luaL_checkinteger(L, 5);
+		limit = lua_tonumber(L, 5);
+	}
+
+	if(!lua_isnoneornil(L, 6)) {
+		luaL_checkinteger(L, 6);
+		skip = lua_tonumber(L, 5);
+	}
+
+	mongo_cursor * cursor = mongo_find(conn, ns, q, f, limit, skip, 0);
+
+	bson_destroy(q);
+	bson_destroy(f);
+
+	if(cursor == NULL) {
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		lua_pushinteger(L, conn->err);
+		return 2;
+	}
+
+	luaL_checkstack(L, 1, "Not enough stack to create connection");
+	result = (luamongoc_Cursor *)lua_newuserdata(
+			L, sizeof(luamongoc_Cursor)
+			);
+	result->obj = cursor;
+	result->count = 0;
+
+	if (luaL_newmetatable(L, LUAMONGOC_CUR_MT))
+	{
+		luaL_checkstack(L, 1, "Not enough stack to register connection MT");
+		lua_pushvalue(L, lua_upvalueindex(1));
+		setfuncs(L, C, 1);
+
+		lua_pushvalue(L, -1);
+		lua_setfield(L, -2, "__index");
+	}
+	lua_setmetatable(L, -2);
+
+	return 1;
+}
+
+#define lconn_query lconn_find
 
 static int lconn_find_one(lua_State *L)
 {
@@ -478,6 +652,8 @@ static int lconn_tostring(lua_State * L)
 
 static const luaL_reg M[] =
 {
+	{ "find", lconn_find },
+	{ "query", lconn_query },
 	{ "find_one", lconn_find_one },
 	{ "count", lconn_count },
 	{ "update", lconn_update },
