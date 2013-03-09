@@ -529,22 +529,27 @@ static int lconn_count(lua_State *L)
 	const char * db = luaL_checkstring(L, 2);
 	const char * coll = luaL_checkstring(L, 3);
 
-	if(!lua_isnoneornil(L, 4) && !lua_type(L, 4) == 5)
+	if(!lua_isnoneornil(L, 4)) {
+		luaL_checktype(L, 4, 5);
+		lua_to_bson(L, 4, b);
+	}
+
+	if(bson_finish(b) != 0)
 	{
+		printf("BSON ERROR");
+		return 0;
+	}
+
+	int count = mongo_count(conn, db, coll, b);
+	if(count == -1) {
+		bson_destroy(b);
 		luaL_checkstack(L, 2, "Not enough stack to push error");
 		lua_pushnil(L);
-		lua_pushliteral(L, "Query is not a table");
-	} else if (lua_type(L, 4) == 5) {
-		lua_to_bson(L, 4, b);
-
-		if(bson_finish(b) != 0)
-		{
-			printf("BSON ERROR");
-			return 0;
-		}
+		lua_pushstring(L, conn->lasterrstr);
+		return 2;
 	}
-	int count = mongo_count(conn, db, coll, b);
-	lua_pushinteger(L, count);
+	bson_destroy(b);
+	lua_pushnumber(L, count);
 	return 1;
 }
 
