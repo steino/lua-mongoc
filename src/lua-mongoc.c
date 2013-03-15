@@ -99,9 +99,9 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 					break;
 				case 1:
 					bson_append_start_array(bobj, key);
-					for (len; len--;) {
-						lua_pushinteger(L, len);
-						lua_rawgeti(L, idx, len+1);
+					for (int i = 0; i < len; i++) {
+						lua_pushinteger(L, i);
+						lua_rawgeti(L, idx, i+1);
 						lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
 						lua_pop(L, 2);
 					}
