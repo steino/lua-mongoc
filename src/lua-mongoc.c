@@ -727,9 +727,6 @@ void lmongoc_bsontype(lua_State * L, int type)
 
 	lua_newtable(L);
 
-	lua_pushinteger(L, type);
-	lua_setfield(L, -2, "__bsontype");
-
 	lua_pushstring(L, string);
 	lua_setfield(L, -2, "__string");
 
