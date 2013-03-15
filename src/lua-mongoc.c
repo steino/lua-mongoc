@@ -150,7 +150,7 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 					bson_append_regex(b, key, bson_iterator_regex(b_it), bson_iterator_regex_opts(b_it));
 					break;
 			}
-			//bson_iterator_dispose(b_it);
+			bson_iterator_dispose(b_it);
 			break;
 	}
 }
