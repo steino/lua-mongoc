@@ -6,6 +6,7 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <math.h>
+#include <string.h>
 #include "mongo.h"
 
 #define LUAMONGOC_VERSION 		"lua-mongoc 0.1"
@@ -521,17 +522,48 @@ static int lconn_find_one(lua_State *L)
 	return 1;
 }
 
+static int lconn_drop_collection(lua_State *L)
+{
+	bson * b = bson_create();
+	mongo * conn = check_connection(L, 1);
+
+	char * s = (char *)luaL_checkstring(L, 2);
+	const char * sep = ".";
+	char * db;
+	char * coll;
+
+	db = strtok(s, sep);
+	coll = strtok(NULL, sep);
+
+	if(mongo_cmd_drop_collection(conn, db, coll, b) != 0)
+	{
+		luaL_checkstack(L, 2, "Not enough stack to push error");
+		lua_pushnil(L);
+		return 1;
+	}
+
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int lconn_count(lua_State *L)
 {
 	bson * b = bson_create();
 	bson_init(b);
 	mongo * conn = check_connection(L, 1);
-	const char * db = luaL_checkstring(L, 2);
-	const char * coll = luaL_checkstring(L, 3);
 
-	if(!lua_isnoneornil(L, 4)) {
-		luaL_checktype(L, 4, 5);
-		lua_to_bson(L, 4, b);
+	char * s = (char *)luaL_checkstring(L, 2);
+	const char * sep = ".";
+	char * db;
+	char * coll;
+
+	db = strtok(s, sep);
+	coll = strtok(NULL, sep);
+
+
+	if(!lua_isnoneornil(L, 3)) {
+		luaL_checktype(L, 3, 5);
+		lua_to_bson(L, 3, b);
 	}
 
 	if(bson_finish(b) != 0)
@@ -682,6 +714,7 @@ static const luaL_reg M[] =
 	{ "find", lconn_find },
 	{ "query", lconn_query },
 	{ "find_one", lconn_find_one },
+	{ "drop_collection", lconn_drop_collection },
 	{ "count", lconn_count },
 	{ "update", lconn_update },
 	{ "insert", lconn_insert },
