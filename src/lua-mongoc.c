@@ -142,14 +142,7 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 			bsontype = (luamongoc_bsontype *)lua_touserdata(L, idx);
 			bson_iterator_init(b_it, bsontype->obj);
 			bson_find(b_it, bsontype->obj, "bsontype");
-			luaL_getmetafield(L, idx, "__bsontype");
-			int type = lua_tointeger(L, -1);
-			lua_pop(L, 1);
-			switch(type) {
-				case 11:
-					bson_append_regex(b, key, bson_iterator_regex(b_it), bson_iterator_regex_opts(b_it));
-					break;
-			}
+			bson_append_element(b, key, b_it);
 			bson_iterator_dispose(b_it);
 			break;
 	}
