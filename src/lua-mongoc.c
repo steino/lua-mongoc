@@ -9,11 +9,29 @@
 #include "mongo.h"
 
 #define LUAMONGOC_VERSION 		"lua-mongoc 0.1"
-#define LUAMONGOC_COPYRIGHT 	"Copyright (C) 2013, lua-mongoc authors"
-#define LUAMONGOC_DESCRIPTION "Binding for the mongo C driver."
+#define LUAMONGOC_COPYRIGHT 		"Copyright (C) 2013, lua-mongoc authors"
+#define LUAMONGOC_DESCRIPTION 		"Binding for the mongo C driver."
 
 #define LUAMONGOC_CONN_MT 		"lua-mongoc.connection"
 #define LUAMONGOC_CUR_MT 		"lua-mongoc.cursor"
+
+typedef struct luamongoc_Connection
+{
+	mongo* obj;
+} luamongoc_Connection;
+
+typedef struct luamongoc_Cursor
+{
+	const char * key;
+	int table;
+	int count;
+	mongo_cursor* obj;
+} luamongoc_Cursor;
+
+typedef struct luamongoc_bsontype
+{
+	bson * obj;
+} luamongoc_bsontype;
 
 // luaL_setfuncs() from lua 5.2
 static void setfuncs (lua_State *L, const luaL_reg*l, int nup)
@@ -36,7 +54,7 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 
 	double numval;
 	int array = 1, len, intval;
-
+	luamongoc_bsontype * bsontype = NULL;
 	switch(lua_type(L, idx))
 	{
 		case 5:
@@ -68,46 +86,38 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 				case 0:
 					lua_pushnil(L);
 					while(lua_next(L, idx)) {
+						bson_append_start_object(bobj, key);
 						switch (lua_type(L, -2)) {
 							case 3: // number
-								lua_append_bson(L, lua_tolstring(L, -2, NULL), -1, bobj, ref);
-								break;
 							case 4: // string
 								lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
 								break;
 						}
+						bson_append_finish_object(bobj);
 						lua_pop(L, 1);
 					}
-					if(bson_finish(bobj) != 0)
-					{
-						printf("BSON ERROR");
-						return;
-					}
-					bson_append_bson(b, key, bobj);
-					bson_destroy(bobj);
 					break;
 				case 1:
 					bson_append_start_array(bobj, key);
 					for (len; len--;) {
+						lua_pushinteger(L, len);
 						lua_rawgeti(L, idx, len+1);
-						lua_append_bson(L, lua_tolstring(L, len, NULL), -1, bobj, ref);
-						lua_pop(L, 1);
+						lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
+						lua_pop(L, 2);
 					}
 					bson_append_finish_array(bobj);
-
-					if(bson_finish(bobj) != 0)
-					{
-						printf("BSON ERROR");
-						return;
-					}
-
-					bson_iterator_init(b_it, bobj);
-					bson_find(b_it, bobj, key);
-					bson_append_element(b, key, b_it);
-					bson_iterator_dispose(b_it);
-					bson_destroy(bobj);
 					break;
 			}
+			if(bson_finish(bobj) != 0)
+			{
+				printf("BSON ERROR");
+				return;
+			}
+			bson_iterator_init(b_it, bobj);
+			bson_find(b_it, bobj, key);
+			bson_append_element(b, key, b_it);
+			bson_iterator_dispose(b_it);
+			bson_destroy(bobj);
 			break;
 		case 3: // number
 			numval = lua_tonumber(L, idx);
@@ -127,6 +137,20 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 			break;
 		case 0: // nil
 			bson_append_null(b, key);
+			break;
+		case 7: // userdata
+			bsontype = (luamongoc_bsontype *)lua_touserdata(L, idx);
+			bson_iterator_init(b_it, bsontype->obj);
+			bson_find(b_it, bsontype->obj, "bsontype");
+			luaL_getmetafield(L, idx, "__bsontype");
+			int type = lua_tointeger(L, -1);
+			lua_pop(L, 1);
+			switch(type) {
+				case 11:
+					bson_append_regex(b, key, bson_iterator_regex(b_it), bson_iterator_regex_opts(b_it));
+					break;
+			}
+			//bson_iterator_dispose(b_it);
 			break;
 	}
 }
@@ -226,8 +250,6 @@ void lua_to_bson (lua_State * L, int idx, bson * b)
 		switch (lua_type(L, -2))
 		{
 			case 3: // number
-				lua_append_bson(L, lua_tolstring(L, -2, NULL), -1, b, ref);
-				break;
 			case 4: // string
 				lua_append_bson(L, lua_tostring(L, -2), -1, b, ref);
 				break;
@@ -237,20 +259,6 @@ void lua_to_bson (lua_State * L, int idx, bson * b)
 
 	luaL_unref(L, (-10000), ref);
 }
-
-typedef struct luamongoc_Connection
-{
-	mongo* obj;
-} luamongoc_Connection;
-
-typedef struct luamongoc_Cursor
-{
-	const char * key;
-	int table;
-	int count;
-	mongo_cursor* obj;
-} luamongoc_Cursor;
-
 
 static mongo * check_connection(lua_State * L, int idx)
 {
@@ -478,7 +486,6 @@ static int lconn_find_one(lua_State *L)
 		printf("BSON ERROR");
 		return 0;
 	}
-
 	switch(lua_type(L, 4))
 	{
 		case 5:
@@ -694,6 +701,57 @@ static const luaL_reg M[] =
 	{ NULL, NULL }
 };
 
+static int lmongoc_bsontype_tostring(lua_State * L)
+{
+	luaL_getmetafield(L, 1, "__string");
+	lua_pushstring(L, lua_tostring(L, -1));
+	return 1;
+}
+
+void lmongoc_bsontype(lua_State * L, int type)
+{
+	luamongoc_bsontype * result = NULL;
+	bson * b = bson_create();
+	char string[25];
+
+	bson_init(b);
+	switch(type) {
+		case 11:
+			bson_append_regex(b, "bsontype", luaL_checkstring(L, 1), luaL_checkstring(L, 2));
+			sprintf(string, "mongoc.RegEx: /%s/%s", lua_tostring(L, 1), lua_tostring(L, 2));
+		break;
+	}
+
+	if(bson_finish(b) != 0)
+	{
+		printf("BSON ERROR");
+		return;
+	}
+
+	luaL_checkstack(L, 1, "Not enough stack to create connection");
+	result = (luamongoc_bsontype *)lua_newuserdata(L, sizeof(luamongoc_bsontype));
+	result->obj = b;
+
+	lua_newtable(L);
+
+	lua_pushinteger(L, type);
+	lua_setfield(L, -2, "__bsontype");
+
+	lua_pushstring(L, string);
+	lua_setfield(L, -2, "__string");
+
+	lua_pushcfunction(L, lmongoc_bsontype_tostring);
+	lua_setfield(L, -2, "__tostring");
+
+	lua_setmetatable(L, -2);
+}
+
+static int lmongoc_regex(lua_State *L)
+{
+	lmongoc_bsontype(L, 11);
+	return 1;
+}
+
 static int lmongoc_connect(lua_State * L)
 {
 	const char * host = luaL_checkstring(L, 1);
@@ -736,6 +794,7 @@ static const struct luaL_reg E[] =
 
 static const struct luaL_reg R[] =
 {
+	{ "regex", lmongoc_regex },
 	{ "connect", lmongoc_connect },
 
 	{ NULL, NULL }
