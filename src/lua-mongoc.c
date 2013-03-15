@@ -527,13 +527,15 @@ static int lconn_drop_collection(lua_State *L)
 	bson * b = bson_create();
 	mongo * conn = check_connection(L, 1);
 
-	char * s = (char *)luaL_checkstring(L, 2);
-	const char * sep = ".";
-	char * db;
-	char * coll;
+	const char * s = luaL_checkstring(L, 2);
+	char * e = strchr(s, *".");
 
-	db = strtok(s, sep);
-	coll = strtok(NULL, sep);
+	lua_pushlstring(L, s, e-s);
+
+	const char * db = lua_tostring(L, -1);
+	const char * coll = e+1;
+
+	lua_pop(L, 1);
 
 	if(mongo_cmd_drop_collection(conn, db, coll, b) != 0)
 	{
@@ -552,14 +554,15 @@ static int lconn_count(lua_State *L)
 	bson_init(b);
 	mongo * conn = check_connection(L, 1);
 
-	char * s = (char *)luaL_checkstring(L, 2);
-	const char * sep = ".";
-	char * db;
-	char * coll;
+	const char * s = luaL_checkstring(L, 2);
+	char * e = strchr(s, *".");
 
-	db = strtok(s, sep);
-	coll = strtok(NULL, sep);
+	lua_pushlstring(L, s, e-s);
 
+	const char * db = lua_tostring(L, -1);
+	const char * coll = e+1;
+
+	lua_pop(L, 1);
 
 	if(!lua_isnoneornil(L, 3)) {
 		luaL_checktype(L, 3, 5);
@@ -581,7 +584,7 @@ static int lconn_count(lua_State *L)
 		return 2;
 	}
 	bson_destroy(b);
-	lua_pushnumber(L, count);
+	lua_pushinteger(L, count);
 	return 1;
 }
 
