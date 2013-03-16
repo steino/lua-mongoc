@@ -86,17 +86,17 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 			{
 				case 0:
 					lua_pushnil(L);
+					bson_append_start_object(bobj, key);
 					while(lua_next(L, idx)) {
-						bson_append_start_object(bobj, key);
 						switch (lua_type(L, -2)) {
 							case 3: // number
 							case 4: // string
 								lua_append_bson(L, lua_tostring(L, -2), -1, bobj, ref);
 								break;
 						}
-						bson_append_finish_object(bobj);
 						lua_pop(L, 1);
 					}
+					bson_append_finish_object(bobj);
 					break;
 				case 1:
 					bson_append_start_array(bobj, key);
