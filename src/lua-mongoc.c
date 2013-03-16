@@ -230,6 +230,9 @@ static void bson_to_value(lua_State * L, bson_iterator * it)
 			bson_oid_to_string(bson_iterator_oid(it), oid);
 			lua_pushstring(L, oid);
 			break;
+		case 10:
+			lua_pushnil(L);
+			break;
 	}
 }
 
@@ -745,6 +748,10 @@ void lmongoc_bsontype(lua_State * L, int type)
 
 	bson_init(b);
 	switch(type) {
+		case 10:
+			bson_append_null(b, "bsontype");
+			sprintf(string, "mongoc.null");
+		break;
 		case 11:
 			bson_append_regex(b, "bsontype", luaL_checkstring(L, 1), luaL_checkstring(L, 2));
 			sprintf(string, "mongoc.RegEx: /%s/%s", lua_tostring(L, 1), lua_tostring(L, 2));
@@ -770,6 +777,12 @@ void lmongoc_bsontype(lua_State * L, int type)
 	lua_setfield(L, -2, "__tostring");
 
 	lua_setmetatable(L, -2);
+}
+
+static int lmongoc_null(lua_State *L)
+{
+	lmongoc_bsontype(L, 10);
+	return 1;
 }
 
 static int lmongoc_regex(lua_State *L)
@@ -820,6 +833,7 @@ static const struct luaL_reg E[] =
 
 static const struct luaL_reg R[] =
 {
+	{ "null", lmongoc_null },
 	{ "regex", lmongoc_regex },
 	{ "connect", lmongoc_connect },
 
