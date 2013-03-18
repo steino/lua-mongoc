@@ -519,8 +519,10 @@ static int lconn_find_one(lua_State *L)
 	} else {
 		bson_iterator * it = bson_iterator_create();
 		bson_iterator_init(it, out);
-		bson_find(it, out, key);
-		bson_to_value(L, it);
+		if(bson_find(it, out, key))
+			bson_to_value(L, it);
+		else
+			lua_pushnil(L);
 	}
 	return 1;
 }
