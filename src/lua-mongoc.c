@@ -50,19 +50,15 @@ static void setfuncs (lua_State *L, const luaL_reg*l, int nup)
 
 static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, int ref)
 {
-	bson * bobj = bson_create();
-	bson_iterator * b_it = bson_iterator_create();
-
-	double numval;
-	int array = 1, len, intval;
-	luamongoc_bsontype * bsontype = NULL;
 	switch(lua_type(L, idx))
 	{
 		case 5:
+		{
 			if (idx < 0)
 				idx = lua_gettop(L) + idx + 1;
 
 			lua_checkstack(L, 3);
+			bson * bobj = bson_create();
 			bson_init(bobj);
 
 			lua_rawgeti(L, (-10000), ref);
@@ -72,6 +68,7 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 			lua_pop(L, 1);
 
 			lua_pushnil(L);
+			int array = 1, len = 0;
 			while(lua_next(L, idx)) {
 				++len;
 				if ((lua_type(L, -2) != LUA_TNUMBER) || (lua_tointeger(L, -2) != len)) {
@@ -114,22 +111,27 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 				printf("BSON ERROR");
 				return;
 			}
+			bson_iterator * b_it = bson_iterator_create();
 			bson_iterator_init(b_it, bobj);
 			bson_find(b_it, bobj, key);
 			bson_append_element(b, key, b_it);
 			bson_iterator_dispose(b_it);
 			bson_destroy(bobj);
 			break;
+		}
 		case 3: // number
+		{
+			double numval;
 			numval = lua_tonumber(L, idx);
 			if(numval == floor(numval))
 			{
-				intval = lua_tointeger(L, idx);
+				int intval = lua_tointeger(L, idx);
 				bson_append_int(b, key, intval);
 			} else {
 				bson_append_double(b, key, numval);
 			}
 			break;
+		}
 		case 4: // string
 			bson_append_string(b, key, lua_tostring(L, idx));
 			break;
@@ -140,12 +142,15 @@ static void lua_append_bson(lua_State * L, const char * key, int idx, bson * b, 
 			bson_append_null(b, key);
 			break;
 		case 7: // userdata
-			bsontype = (luamongoc_bsontype *)lua_touserdata(L, idx);
+		{
+			bson_iterator * b_it = bson_iterator_create();
+			luamongoc_bsontype * bsontype = (luamongoc_bsontype *)lua_touserdata(L, idx);
 			bson_iterator_init(b_it, bsontype->obj);
 			bson_find(b_it, bsontype->obj, "bsontype");
 			bson_append_element(b, key, b_it);
 			bson_iterator_dispose(b_it);
 			break;
+		}
 	}
 }
 
@@ -187,13 +192,8 @@ static void bson_to_table (lua_State * L, bson *b)
 
 static void bson_to_value(lua_State * L, bson_iterator * it)
 {
-	bson * sub = bson_create();
-	bson_type type;
-	type = bson_iterator_type(it);
-	char oid[25];
-
 	lua_checkstack(L, 2);
-	switch(type)
+	switch(bson_iterator_type(it))
 	{
 		case 18: // long
 		case 1: // double
@@ -202,23 +202,48 @@ static void bson_to_value(lua_State * L, bson_iterator * it)
 		case 16: // int
 			lua_pushinteger(L, bson_iterator_int(it));
 			break;
+		case 15: // codewscope
+		case 13: // code
+		case 14: // symbol
 		case 2: // string
 			lua_pushstring(L, bson_iterator_string(it));
 			break;
 		case 4: // array
+		{
+			bson * sub = bson_create();
 			bson_iterator_subobject(it, sub);
 			bson_to_array(L, sub);
 			break;
+		}
 		case 3: // object
+		{
+			bson * sub = bson_create();
 			bson_iterator_subobject(it, sub);
 			bson_to_table(L, sub);
 			break;
+		}
 		case 7: // oid
+		{
+			char oid[25];
 			bson_oid_to_string(bson_iterator_oid(it), oid);
 			lua_pushstring(L, oid);
 			break;
-		case 10:
+		}
+		case 8: // bool
+			lua_pushboolean(L, bson_iterator_bool(it));
+			break;
+		case 5: // bindata
+			lua_pushstring(L, bson_iterator_bin_data(it));
+			break;
+		case 11:
+			lua_pushfstring(L, "/%s/%s", bson_iterator_regex(it), bson_iterator_regex_opts(it));
+			break;
+		case 12: // DBREF (deprecated)
+		case 6: // undefined
+		case 10: // null
 			lua_pushnil(L);
+			break;
+		case 0: // EOO
 			break;
 	}
 }
@@ -358,6 +383,8 @@ static const struct luaL_reg C[] =
 	{ "next", lcur_next },
 	{ "more", lcur_more },
 
+	{ "__tostring", lcur_tostring },
+
 	{ NULL, NULL }
 };
 
@@ -372,7 +399,7 @@ static int lconn_find(lua_State *L)
 	bson_init(f);
 
 	const char * key = NULL;
-	int limit, skip = 0, table = 1;
+	int limit = 0, skip = 0, table = 1;
 
 	mongo * conn = check_connection(L, 1);
 	const char * ns = luaL_checkstring(L, 2);
