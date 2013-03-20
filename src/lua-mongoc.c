@@ -157,15 +157,9 @@ static void bson_to_array (lua_State * L, bson *b)
 	bson_iterator_init(it, b);
 
 	lua_newtable(L);
-	int n = 1,i = bson_size(b);
-	for(i; i--;)
+	int n = 1;
+	while(bson_iterator_next(it) != 0)
 	{
-		bson_type type;
-		type = bson_iterator_next(it);
-
-		if(type == 0)
-			break;
-
 		bson_to_value(L, it);
 		lua_rawseti(L, -2, n++);
 	}
@@ -178,18 +172,11 @@ static void bson_to_table (lua_State * L, bson *b)
 	bson_iterator * it = bson_iterator_create();
 	bson_iterator_init(it, b);
 
+	const char * key;
 	lua_newtable(L);
-	int i = bson_size(b);
-	for(i; i--;)
+	while(bson_iterator_next(it) != 0)
 	{
-		bson_type type;
-		type = bson_iterator_next(it);
-
-		if(type == 0)
-			break;
-
-		const char * key = bson_iterator_key(it);
-
+		key = bson_iterator_key(it);
 		lua_pushstring(L, key);
 		bson_to_value(L, it);
 		lua_rawset(L, -3);
